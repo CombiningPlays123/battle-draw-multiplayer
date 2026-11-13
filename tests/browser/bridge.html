@@ -1,0 +1,14 @@
+<!doctype html><meta charset="utf-8"><title>bridge</title><body>bridging…
+<script>
+// Test helper: public pages (neal.fun) cannot call localhost, so this page (served from localhost) reads files from the
+// dev server, stores them in window.name (which survives a cross-site navigation) and redirects to the game.
+//   /tests/browser/bridge.html?files=/dist/test-kit.js,/dist/client.min.js&go=https://neal.fun/battle-draw/
+(async () => {
+  const q = new URLSearchParams(location.search);
+  const files = (q.get('files') || '/dist/test-kit.js,/dist/client.min.js').split(',');
+  const out = {};
+  for (const f of files) out[f] = await (await fetch(f)).text();
+  window.name = 'BDKIT' + JSON.stringify(out);
+  location.href = q.get('go') || 'https://neal.fun/battle-draw/';
+})();
+</script>

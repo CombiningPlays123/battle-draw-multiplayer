@@ -1,0 +1,5 @@
+{
+  "supabaseUrl": "https://YOUR-PROJECT-REF.supabase.co",
+  "supabasePublishableKey": "sb_publishable_YOUR_PUBLIC_KEY_OR_LEGACY_ANON_KEY",
+  "clientUrl": "https://YOUR-GITHUB-USERNAME.github.io/YOUR-REPO/multiplayer.js"
+}
