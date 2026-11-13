@@ -7,9 +7,9 @@ M.preview = (s) => {
   const c = cv.getContext('2d'); c.fillStyle = 'rgba(128,128,128,.12)'; c.fillRect(0, 0, cv.width, cv.height);
   for (const a of s.armies || []) {
     const col = M.sideOf(a.faction, m.mode, m.zones).color; c.fillStyle = col;
-    for (const u of (a.data && a.data.units) || []) { c.beginPath(); c.arc(u[1] * f, u[2] * f, 2.2, 0, 7); c.fill(); }
+    for (const u of (a.data && a.data.units) || []) { c.beginPath(); c.arc(u[1] * cv.width, u[2] * cv.height, 2.2, 0, 7); c.fill(); }
     c.fillStyle = col; c.globalAlpha = .45;
-    for (const w of (a.data && a.data.walls) || []) c.fillRect(w[0] * f, w[1] * f, Math.max(1, w[2] * f), Math.max(1.5, w[3] * f));
+    for (const w of (a.data && a.data.walls) || []) c.fillRect(w[0] * cv.width, w[1] * cv.height, Math.max(1, w[2] * cv.width), Math.max(1.5, w[3] * cv.height));
     c.globalAlpha = 1;
   }
   return cv;
@@ -30,7 +30,8 @@ M.views.results = (ui, s) => {
   const stat = h('div', { class: 'stats' },
     r.endTick ? h('span', { class: 'chip' }, 'Battle length ' + (r.endTick / 60).toFixed(1) + ' s') : null,
     r.agreed ? h('span', { class: 'chip' }, r.agreed + '/' + r.players + ' copies of the simulation agree') : null,
-    h('span', { class: 'chip' }, (mode === 'teams' ? 'Team battle' : 'Free-for-all') + ' · match #' + m.number));
+    h('span', { class: 'chip' }, (mode === 'teams' ? 'Team battle' : 'Free-for-all') + ' · match #' + m.number),
+    m.rules && m.rules.balanced ? h('span', { class: 'chip' }, M.rulesText(m.rules)) : null);
 
   const sv = st.survivors || {}, pl = st.placed || {};
   const contrib = m.zones.length && (m.outcome === 'win' || m.outcome === 'draw') ? h('div', { class: 'contrib' }, m.zones.map(z => {

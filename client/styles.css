@@ -102,9 +102,10 @@ details.tally { margin-top: 12px; font-size: 12.5px; } details summary { cursor:
 
 /* ---- Battle Draw additions */
 .field-layer { position: fixed; left: 0; top: 0; pointer-events: none; display: none; z-index: 0; }
-.field-layer.on { display: block; outline: 2px solid rgba(0,0,0,.18); }
+.field-layer.on { display: block; } .field-layer.on:not(.plain) { outline: 2px solid rgba(0,0,0,.18); }
 .zones .zone { position: absolute; box-sizing: border-box; border: 2px dashed color-mix(in srgb, var(--tc) 55%, transparent); background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--tc) 9%, transparent) 0 10px, transparent 10px 20px); }
-.zones .zone.mine { border: 3px solid var(--tc); background: color-mix(in srgb, var(--tc) 8%, transparent); }
+.zones .zone.mine { border: 3px solid var(--tc); background: color-mix(in srgb, var(--tc) 6%, transparent); }
+.zones .zone:not(.mine) { background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--tc) 14%, transparent) 0 10px, transparent 10px 20px); }
 .zlabel { position: absolute; left: 8px; top: 6px; font: 700 12px system-ui, sans-serif; color: var(--tc); background: rgba(255,255,255,.85); padding: 2px 8px; border-radius: 99px; }
 .zone:not(.mine) .zlabel { opacity: .75; font-weight: 600; }
 .markers { position: absolute; left: 0; top: 0; }
@@ -122,3 +123,15 @@ details.tally { margin-top: 12px; font-size: 12.5px; } details summary { cursor:
 .preview { width: 100%; border-radius: 10px; border: 1px solid var(--line); display: block; }
 ol.how { padding-left: 18px; margin: 6px 0; } ol.how li { margin: 4px 0; font-size: 12.5px; color: var(--mut); }
 .wrap.right { right: 14px; } .wrap.left { left: 14px; }
+
+/* ---- balanced competition rules */
+.balance-toggle { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; background: var(--bg2); color: var(--fg); border: 2px solid var(--line); border-radius: 14px; padding: 10px 12px; cursor: pointer; font: inherit; }
+.balance-toggle:disabled { cursor: default; } .balance-toggle .bt { flex: 1; display: flex; flex-direction: column; } .balance-toggle small { color: var(--mut); }
+.balance-toggle .sw { width: 38px; height: 22px; border-radius: 99px; background: var(--bg3); position: relative; transition: .2s; } .balance-toggle .sw::after { content: ""; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: .2s; }
+.balance-toggle.on { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 12%, var(--bg2)); } .balance-toggle.on .sw { background: var(--acc); } .balance-toggle.on .sw::after { left: 19px; }
+.rulelabel { margin: 10px 0 4px; font-size: 11.5px; color: var(--mut); text-transform: uppercase; letter-spacing: .8px; }
+.uchips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.uchip { background: var(--bg2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 3px 9px; font: 12px inherit; cursor: pointer; position: relative; } .uchip:disabled { cursor: default; opacity: .9; }
+.uchip.voted { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 18%, var(--bg2)); } .uchip i { font-style: normal; margin-left: 6px; color: var(--acc); font-weight: 700; }
+.uchip.banned { background: color-mix(in srgb, var(--bad) 20%, var(--bg2)); border-color: var(--bad); text-decoration: line-through; }
+.rulebox { margin: 8px 0; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--acc) 12%, var(--bg2)); border: 1px solid color-mix(in srgb, var(--acc) 40%, transparent); font-size: 12.5px; }

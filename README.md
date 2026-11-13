@@ -24,10 +24,11 @@ battle-draw-multiplayer/
 Nothing has been published or deployed on your behalf; no secret/service-role key is ever needed.
 
 ## How it works (short)
-* **Individual armies:** nothing about the canvases is synchronised. Each player draws in their own copy, inside their own zone; only the
+* **Individual armies:** nothing about the canvases is synchronised. Each player draws on the WHOLE map of their own copy of the game, in the game's own Team battle layout (red left / blue right; free-for-all: a sector each); only the
   *finished army data* is uploaded (hidden from others until the lock).
 * **One real simulation:** the original engine is deterministic (seeded, fixed timestep). After the lock every copy of the game builds the
   *same* battle from all armies + a server seed and starts it at the same server-timed moment; the host can pause/resume for everybody.
+* **Balanced competition (optional):** the host can set a troop limit, allowed categories and troop bans (picked by the host or voted by the players).
 * **Honest results:** each copy reports (winner, end tick, state hash); the server only accepts a result a majority agree on, otherwise the
   match is "disputed" and the host confirms. Nothing is randomised or invented.
 Details and the findings about the original game: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -40,7 +41,7 @@ on separate machines, or across different browser engines.
 ## Limitations
 * Water, ice and banana peels aren't carried into shared battles (units, walls, mines are).
 * Same browser family for everyone is recommended (floating-point determinism across engines is untested; a mismatch shows up as a *disputed* result, never a wrong winner).
-* Fixed 800×540 battlefield in the window's top-left (needs ≈ 900×620 px).
+* Teammates share their team's half of the map while drawing (they can't see each other's army), so armies can overlap; the engine separates them.
 * Refreshing removes the snippet; re-run it (↑ + Enter) and the client rejoins, even mid-battle.
 * If neal.fun changes its internals, only `client/battle-draw-adapter.js` needs updating.
 * School-managed browsers may block DevTools, console pasting or the network hosts - see docs/INSTALLATION.md.

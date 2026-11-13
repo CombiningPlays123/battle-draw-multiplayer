@@ -64,27 +64,29 @@ class UI {
   }
 
   /* ---------------------------------------------------------------- field layer (zones over the original canvas) */
-  sizeField(w, h) { const ct = this.app.adapter.ct; this.fieldLayer.style.width = Math.round(w * ct) + 'px'; this.fieldLayer.style.height = Math.round(h * ct) + 'px'; this.fieldLayer.classList.add('on'); }
   showZones(s) {
-    this.hideZones(); const m = s.match, ct = this.app.adapter.ct; this.sizeField(m.field.w, m.field.h);
-    this.zonesEl = M.h('div', { class: 'zones' }, m.zones.map(z => {
-      const sd = M.sideOf(z.faction, m.mode, m.zones), mine = z.user === s.me;
-      return M.h('div', { class: 'zone' + (mine ? ' mine' : ''), style: { left: z.x * ct + 'px', top: z.y * ct + 'px', width: z.w * ct + 'px', height: z.h * ct + 'px', '--tc': sd.color } },
-        M.h('span', { class: 'zlabel' }, mine ? 'YOUR ZONE - draw here' : z.name + '\'s zone (hidden)'));
+    this.hideZones(); const m = s.match, ad = this.app.adapter, sim = ad.sim, ct = ad.viewScale(), W = sim.width * ct, H = sim.height * ct;
+    this.fieldLayer.style.width = Math.round(W) + 'px'; this.fieldLayer.style.height = Math.round(H) + 'px'; this.fieldLayer.classList.add('on'); this.fieldLayer.classList.add('plain');
+    const seen = new Map();
+    for (const z of m.zones) { const k = [z.x, z.y, z.w, z.h].join(','); const e = seen.get(k) || { z, mine: false, names: [] }; e.mine = e.mine || z.user === s.me; e.names.push(z.name); seen.set(k, e); }
+    this.zonesEl = M.h('div', { class: 'zones' }, [...seen.values()].map(({ z, mine, names }) => {
+      const sd = M.sideOf(z.faction, m.mode, m.zones);
+      return M.h('div', { class: 'zone' + (mine ? ' mine' : ''), style: { left: z.x * W + 'px', top: z.y * H + 'px', width: z.w * W + 'px', height: z.h * H + 'px', '--tc': sd.color } },
+        M.h('span', { class: 'zlabel' }, mine ? (m.mode === 'teams' ? 'YOUR SIDE - draw here' : 'YOUR SECTOR - draw here') : (m.mode === 'teams' ? sd.name + ' side' : names.join(' + ') + ' sector') + ' (hidden)'));
     }));
     this.fieldLayer.appendChild(this.zonesEl);
   }
   hideZones() { if (this.zonesEl) this.zonesEl.remove(); this.zonesEl = null; }
-  hideField() { this.hideZones(); this.fieldLayer.classList.remove('on'); [...this.fieldLayer.querySelectorAll('.bigcount')].forEach(e => e.remove()); }
-  setArmyInfo(a) { if (this.refs.armyInfo) this.refs.armyInfo.textContent = `${a.units.length} units` + (a.walls.length ? ` · ${a.walls.length} wall pieces` : '') + (a.mines.length ? ` · ${a.mines.length} mines` : ''); }
+  hideField() { this.hideZones(); this.fieldLayer.classList.remove('on'); this.fieldLayer.classList.remove('plain'); [...this.fieldLayer.querySelectorAll('.bigcount, .markers')].forEach(e => e.remove()); }
+  setArmyInfo(a) { const st = this.app.rm.state, r = st && st.match && st.match.rules; if (this.refs.armyInfo) this.refs.armyInfo.textContent = `${a.units.length}` + (r && r.balanced ? ' / ' + r.maxUnits : '') + ' units' + (a.walls.length ? ` · ${a.walls.length} wall pieces` : '') + (a.mines.length ? ` · ${a.mines.length} mines` : ''); }
   setSaved(ok) { if (this.refs.saved) { this.refs.saved.textContent = ok ? '✓ saved to the room' : 'not saved yet…'; this.refs.saved.className = 'saved ' + (ok ? 'ok' : ''); } }
 
   /* ---------------------------------------------------------------- rendering */
   stateSig(s) {
     const m = s.match;
-    return JSON.stringify([s.phase, s.room.mode, s.room.prepSeconds, s.room.hostId,
+    return JSON.stringify([s.phase, s.room.mode, s.room.prepSeconds, s.room.hostId, s.room.rules,
       s.players.map(p => [p.id, p.name, p.online, p.ready, p.team, p.host, p.units, p.reported]),
-      m && [m.id, m.phase, m.paused, m.outcome, m.result, m.zones.length, m.reports], s.history && s.history.length, (s.armies || []).length, this.app.rm.startsInMs() > 0]);
+      m && [m.id, m.phase, m.paused, m.outcome, m.result, m.zones.length, m.reports, m.rules], s.history && s.history.length, (s.armies || []).length, this.app.rm.startsInMs() > 0]);
   }
   render(s) {
     this.codeChip.style.display = s ? '' : 'none'; if (s) this.codeChip.textContent = s.room.code + ' ⧉';
@@ -133,7 +135,7 @@ class UI {
           h('li', {}, 'When time is up (or everyone is ready) the armies lock and all fight in one battle that everyone watches.'),
           h('li', {}, 'The result is confirmed by all players\' copies of the simulation, then you can rematch.'))),
       h('details', { class: 'tally' }, h('summary', {}, 'Installation / troubleshooting'),
-        h('p', { class: 'hint' }, 'No extension needed. This panel is loaded by the console snippet from your install page. After a refresh, run the snippet again (press ↑ then Enter in the console) - you rejoin your room automatically. Your browser window should be at least ~900 × 620 px (use Ctrl + − to zoom out on small screens).')));
+        h('p', { class: 'hint' }, 'No extension needed. This panel is loaded by the console snippet from your install page. After a refresh, run the snippet again (press ↑ then Enter in the console) - you rejoin your room automatically.')));
   }
 
   /* ------------------------------------------------ 150 ms tick: timers/countdown/status only (no re-render) */

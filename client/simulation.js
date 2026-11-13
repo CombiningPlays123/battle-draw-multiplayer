@@ -9,8 +9,7 @@ class BattleRunner {
     const { adapter, ui } = this.app, m = s.match; this.s = s; this.matchId = m.id;
     const armies = s.armies.map(a => ({ faction: a.faction, slot: (m.zones.find(z => z.user === a.user) || {}).slot, data: a.data }))
       .filter(a => a.slot != null).sort((a, b) => a.slot - b.slot);
-    adapter.pinField(m.field.w, m.field.h);
-    try { this.info = adapter.buildBattle(armies, m.seed); }
+    try { this.info = adapter.buildBattle(armies, m.seed, m.field); }
     catch (e) { console.error('[BDMP]', e); ui.toast('Could not set up the battle in the original game: ' + e.message, 'bad'); this.failed = e.message; return; }
     this.markers = this._makeMarkers();
     this.timer = setInterval(() => this.tick(), 120);
@@ -52,16 +51,17 @@ class BattleRunner {
   }
   /** colour rings under units of sides 22/23, which the original game only colours for the two built-in teams */
   _makeMarkers() {
-    const { adapter, ui } = this.app, m = this.s.match, cv = M.h('canvas', { class: 'markers' });
-    cv.width = Math.round(m.field.w * adapter.ct); cv.height = Math.round(m.field.h * adapter.ct);
-    cv.style.width = cv.width + 'px'; cv.style.height = cv.height + 'px';
+    const { ui } = this.app, cv = M.h('canvas', { class: 'markers' });
+    ui.fieldLayer.classList.add('on'); ui.fieldLayer.classList.add('plain');
     ui.fieldLayer.appendChild(cv); this.cv = cv; this.ctx = cv.getContext('2d');
     return cv;
   }
   loop() {
-    const { adapter } = this.app, ctx = this.ctx, cv = this.cv; if (!ctx) return;
+    const { adapter, ui } = this.app, ctx = this.ctx, cv = this.cv; if (!ctx) return;
+    const ct = adapter.viewScale(), f = this.s.match.field, w = Math.round(f.w * ct), h = Math.round(f.h * ct);
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; cv.style.width = w + 'px'; cv.style.height = h + 'px'; ui.fieldLayer.style.width = w + 'px'; ui.fieldLayer.style.height = h + 'px'; }
     ctx.clearRect(0, 0, cv.width, cv.height);
-    const u = adapter.sim.units, ct = adapter.ct, mode = this.s.match.mode, zones = this.s.match.zones;
+    const u = adapter.sim.units, mode = this.s.match.mode, zones = this.s.match.zones;
     for (let i = 0; i < u.highWater; i++) {
       const f = u.faction[i]; if (f < 22 || f > 23 || !u.alive[i] || !(u.hp[i] > 0)) continue;
       const col = M.sideOf(f, mode, zones).color, r = (u.radius[i] || 8) * ct;

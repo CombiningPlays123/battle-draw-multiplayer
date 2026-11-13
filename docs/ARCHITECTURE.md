@@ -14,7 +14,7 @@ that instance already has. Findings, all verified in the live page:
 | Can it accept outside state? | Yes, by spawning units into it through its own methods. |
 | Is it deterministic? | **Yes (tested):** same units in the same order + same `rng.state` + same field size ⇒ identical ticks, survivors and state hash, run after run, and across different browser tabs. A different seed gives a different battle. |
 | Can independently drawn armies share ONE simulation? | **Yes (tested):** import each army, tagged with a faction. Factions 20/21 are the built-in teams; factions 22/23 behave as two more hostile sides, so a genuine 3-4 way free-for-all runs in the same engine. |
-| Problems found | (1) field size = window size, and pointer input is hard-wired to the window → we **pin** the field to 800×540 simulation units on every client (wrapping `sim.resize`/`renderer.resize`); (2) the original result logic only knows two sides → for 3-4 sided battles we detect the winner from the simulation state ourselves, deterministically, one check per tick; (3) factions 22/23 have no colour ring → we draw our own overlay rings; (4) water/ice/banana peels are grid/stroke based and are **not** carried over. |
+| Problems found | (1) the map size = the window size, and pointer input is hard-wired to it → **preparation uses each player's own whole map** (armies are stored as fractions 0..1 of the map, so any screen size works), while the **battle** is built on a fixed canonical 1280×720 field that is scaled to fit every window (wrapping `sim.resize`/`renderer.resize`); (2) the original result logic only knows two sides → for 3-4 sided battles we detect the winner from the simulation state ourselves, deterministically, one check per tick; (3) factions 22/23 have no colour ring → we draw our own overlay rings; (4) water/ice/banana peels are grid/stroke based and are **not** carried over. |
 
 ## Multiplayer design
 ```
@@ -32,8 +32,10 @@ that instance already has. Findings, all verified in the live page:
 * **No canvases are synchronised.** During preparation nothing but match info, readiness and the *finished army data* ever leaves a
   player's browser, and only that player's own army, only inside their zone (server-validated), and it stays hidden from everyone
   else until the lock.
-* **Zones** (`start_match`): 1v1 → left/right halves; teams → team 0 left half, team 1 right half, members stacked; free-for-all 3 →
-  thirds, 4 → quadrants. Field 800×540. The client rejects spawns outside the zone; the server rejects any army that has them.
+* **Preparation uses the game's own Team battle mode** on each player's WHOLE map: red = left half, blue = right half (the original layout,
+  rings and unit counters). Teammates share their team's half (use chat to split the space). In free-for-all, which the original has no mode
+  for, each player gets a sector of the map (2 players: halves, 3: thirds, 4: quadrants). The client rejects spawns outside your side and the
+  server rejects any army with units outside it (`start_match` stores the normalised zones).
 * **Lock**: when the (server) preparation timer ends, everyone is ready, or the host ends it. Fewer than two sides with units → the
   match is cancelled instead of "simulating" nothing.
 * **Battle sync**: `battle_start_at` (server clock, +8 s countdown), pause accounting on the server. Each client runs the original
@@ -57,5 +59,18 @@ claim about the result (majority + hash), any army outside its zone/limits, any 
 * Terrain: walls and mines are carried over; **water, ice and banana peels are not**. A warning appears if you use them.
 * A modified client can upload any *valid* army inside its own zone (that is simply drawing) and could report a false result, which
   is outvoted by honest clients (it cannot decide a match alone; with 2 players a false report causes a dispute).
-* The field is a fixed 800×540 area at the top-left of the window (needs ≈ 860×580 px).
+* The battle uses a fixed 16:9 field; players with very different window shapes see their drawn positions stretched slightly (fractions of the map are preserved).
+* Teammates draw in the same half without seeing each other's armies, so armies can overlap; the engine separates overlapping units.
 * Spectators joining mid-match are not supported (rooms are closed during a match).
+
+## Balanced competition (optional rules, all chosen by the host)
+Off by default ("standard rules"). When the host switches it on in the lobby:
+* **Troop limit** per player: 10 / 20 / 30 / 50 / 75 / 100 / 150.
+* **Allowed categories** (the original toolbar's Army / Animals / Mythical / Terrain; at least one).
+* **Preparation time** (the existing 1 / 3 / 5 / 10 min / unlimited).
+* **Banned troops (optional):** *No bans*, *Host picks* (the host taps troops to ban them) or *Players vote* (every player may vote to ban up to 2
+  troops; a troop is banned when **more than half** of the players voted for it; votes are visible and changeable until the match starts).
+Enforcement is in two places: the client refuses to place a banned / disallowed / over-limit unit (and hides the disabled toolbar tabs and banned
+troop buttons), and `save_army` on the server rejects any army that breaks the match's rules (`over_unit_limit`, `category_not_allowed`,
+`unit_banned`). The rules are snapshotted into the match at `start_match`, so they cannot change mid-match. Walls/mines count as *Terrain*
+(capped at 600 wall pieces / 30 mines in balanced mode). Changing any setting un-readies the other players.

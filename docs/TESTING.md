@@ -20,7 +20,7 @@ rematch / back to lobby / host transfer / kick / leaving mid-prep · chat saniti
 * Units, groups, **walls and mines** exported from one canvas and imported into a combined simulation; both armies fought to a decided
   result; end tick/hash identical between runs.
 * Two native sides and a **4-way free-for-all** (factions 20-23, hostile to each other) ran to a single survivor side, deterministically.
-* The pinned 800×540 field: input zone clamp works with real pointer drawing; strokes leaving the zone place nothing.
+* Preparation on the whole map in the game's own Team battle mode: spawning on the opponent's half (or outside your FFA sector) places nothing; walls/mines/units export as map fractions.
 
 **Four independent browser sessions** (4 tabs, 4 identities, one room, real game in each):
 * Lobby: create, 3 joins, auto-balanced teams, host assigns a team through the UI (3v1), ready buttons, mode and preparation time.
@@ -56,3 +56,20 @@ npm run build:dev && node tools/make-test-kit.mjs && npm run dev
 #   const f=JSON.parse(window.name.slice(5)); (0,eval)(f['/dist/test-kit.js']); await __kit.startLeader(); __kit.installShim(); __kit.clientCode=f['/dist/client.min.js']; __kit.runClient('A')
 # other tabs: same, but skip startLeader() and use a different profile name.
 ```
+
+## D. Re-test after the whole-map / built-in Team battle rework
+Four real tabs again (build with normalised coordinates, canonical 1280×720 battle field scaled to the window):
+* **2v2** in the game's own Team battle layout: Red 38 vs Blue 29 units, all four armies merged; reporting clients agreed (winner Blue, tick 1073, hash ef2022bb).
+* **Free-for-all with 4 players** (map sectors): 18/13/14/15 units; reporting clients agreed (winner player 2, tick 3371, hash 6be23eb3).
+* Spawns on the wrong half / sector were rejected (-1) in every tab; the original Team-battle UI (Red team label, divider, Start button) is visible during preparation (the Start button is
+  intentionally inert: the timer/readiness starts the battle).
+* Backend suite updated for normalised zones: 16/16 passing.
+
+## E. Balanced competition + troop bans
+* Backend (20/20 tests): host-only rules, validation, snapshot into the match, troop cap exactly at the limit / one over, banned and disallowed
+  categories (units, walls, mines), host-picked bans, vote bans with strict majority (2 of 3), changing a vote un-bans, voting closed during a match.
+* Browser (2 real tabs, real UI): host switched Balanced on, chose a limit of 10, turned Animals and Terrain off, set bans to "Players vote";
+  both players voted Dragon (2/2 → banned); the non-host saw the controls read-only. In preparation: 14 soldier placements → 10 accepted;
+  Dragon (banned), Boar (category off), Barrel (terrain off) and a wall were all refused; the Animals and Terrain toolbar tabs were hidden;
+  the counter read "10 / 10"; the server stored exactly 10 units.
+* Not tested: the host-picks ban mode in the browser (covered by the backend tests) and balanced rules through a full battle (the battle path is unchanged).

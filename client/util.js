@@ -102,3 +102,12 @@ Object.assign(M.ERRORS, {
   nothing_to_confirm: 'There is nothing to confirm.',
   game_in_progress: 'A match is in progress. Wait for it to finish.',
 });
+
+Object.assign(M.ERRORS, {
+  over_unit_limit: 'Over the troop limit for this match.',
+  category_not_allowed: 'That category is not allowed in this match.',
+  unit_banned: 'That troop is banned in this match.',
+  invalid_rules: 'Those rules are not valid (keep at least one troop placeable).',
+  invalid_vote: 'You can vote to ban at most 2 troops, from the allowed categories.',
+  voting_off: 'Troop voting is not enabled.',
+});

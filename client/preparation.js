@@ -9,14 +9,23 @@ class Preparation {
     const { adapter, ui } = this.app, m = s.match, z = m.zones.find(z => z.user === s.me);
     this.matchId = m.id; this.zone = z; this.s = s;
     if (!z) { ui.toast('You are not part of this match (spectating).', 'info'); return; }
-    adapter.pinField(m.field.w, m.field.h);
-    adapter.enterPrep({ x: z.x, y: z.y, w: z.w, h: z.h });
+    this.lastBlock = 0;
+    adapter.onBlocked = (kind, detail) => {
+      if (performance.now() - this.lastBlock < 2500) return; this.lastBlock = performance.now();
+      const r = m.rules || {};
+      ui.toast(kind === 'start' ? 'The battle starts by itself when preparation ends - press "My army is ready" when you are done.'
+        : kind === 'limit' ? 'Troop limit reached (' + r.maxUnits + '). Erase something to place more.'
+        : kind === 'banned' ? (adapter.nameOf(detail) || 'That troop') + ' is banned in this match.'
+        : 'That category is not allowed in this match.', kind === 'start' ? 'info' : 'warn');
+    };
+    adapter.enterPrep({ x: z.x, y: z.y, w: z.w, h: z.h }, m.mode === 'teams', m.rules);     // whole map, the game's own Team-battle layout in team mode
     if (s.myArmy && s.myArmy.units) { adapter.restoreArmy(s.myArmy); this.lastKey = adapter.armyKey(adapter.exportArmy()); }
     else adapter.clearField();
     ui.showZones(s);
+    this.onResize = () => this.app.ui.showZones(this.s); window.addEventListener('resize', this.onResize);
     this.timer = setInterval(() => this.tick(), 400);
   }
-  stop() { clearInterval(this.timer); this.timer = null; this.app.ui.hideZones(); }
+  stop() { clearInterval(this.timer); this.timer = null; if (this.onResize) window.removeEventListener('resize', this.onResize); this.app.ui.hideZones(); }
   update(s) { this.s = s; }
 
   async tick() {
@@ -69,10 +78,11 @@ M.views.prep = (ui, s) => {
       h('span', { class: 'tag' }, (p.units || 0) + ' units'), h('span', { class: 'tag ' + (p.ready ? 'ok' : '') }, !p.id ? 'left' : p.ready ? '✓ ready' : 'drawing…')); };
   return h('div', {},
     h('div', { class: 'target prep' },
-      h('small', {}, 'Preparation - draw your own army'),
+      h('small', {}, 'Preparation - draw your own army on the whole map'),
       h('div', { class: 'trow' }, ui.refs.prepTimer),
-      side ? h('div', { class: 'youare', style: { color: side.color } }, 'You: ' + side.name + (mode === 'teams' ? ' · your zone is highlighted' : '')) : null),
-    h('p', { class: 'hint' }, 'Use the normal Battle Draw tools inside your highlighted zone. Nobody sees your army until the battle starts, and nobody can touch it.'),
+      side ? h('div', { class: 'youare', style: { color: side.color } }, 'You: ' + side.name + (mode === 'teams' ? ' · draw in your team half' : ' · draw in your highlighted sector')) : null),
+    h('p', { class: 'hint' }, mode === 'teams' ? 'This is the original Team battle: red = left half, blue = right half of the whole map. Draw with the normal tools on your team half - teammates share it, so use chat to split the space. Nobody sees your army until the battle starts.' : 'Draw with the normal tools inside your highlighted sector of the map. Nobody sees your army until the battle starts, and nobody can touch it.'),
+    m.rules && m.rules.balanced ? h('div', { class: 'rulebox' }, h('b', {}, '⚖ ' + M.rulesText(m.rules))) : null,
     h('div', { class: 'row between' }, ui.refs.armyInfo, ui.refs.saved),
     doneBtn,
     h('div', { class: 'section-title' }, 'Players'), h('div', { class: 'players' }, m.zones.map(rowOf)),

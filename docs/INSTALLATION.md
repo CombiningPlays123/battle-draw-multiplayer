@@ -34,8 +34,7 @@ cannot control another origin's page. The game can only be integrated from insid
 We do not suggest bypassing security controls.
 
 ## Window size
-The battlefield is a fixed 800×540 area (≈ 860×580 px) in the top-left corner, identical for everyone. Use a browser window of at least
-≈ 900×620 px (zoom out with `Ctrl` + `−` on small screens). Your own saved Battle Draw data is not touched (the game has none).
+You draw on the whole map of your own window, whatever its size. The battle is shown on a fixed 16:9 field scaled to fit your window. Your own saved Battle Draw data is not touched (the game has none).
 
 ## Privacy
 The client stores a random anonymous id + your chosen name in `localStorage`, sends room actions, chat and your *finished army* to your

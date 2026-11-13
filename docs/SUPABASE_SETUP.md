@@ -54,3 +54,7 @@ build, **or** as GitHub repository variables for the automated deploy — see [D
 * *"The backend refused anonymous sign-in"* → step 2.
 * *404 / "function … not found"* → step 3 wasn't run (or ran with errors — read the SQL editor output).
 * Free projects pause after ~1 week of inactivity: press **Restore** in the dashboard.
+
+## Updating an existing project
+Re-run the whole `0001_schema.sql` in the SQL editor after every update. It is idempotent: it adds new columns, replaces functions and removes stale
+function versions (for example the old `update_settings` signature). Skipping it after an update makes the lobby settings fail.

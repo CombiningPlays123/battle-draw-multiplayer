@@ -10,7 +10,57 @@ M.sideOf = (faction, mode, zones) => {
   return { color: M.SLOT_COLORS[faction - 20] || '#888', name: z ? z.name : 'Player ' + (faction - 19) };
 };
 
+/* the original game's unit tools (names as shown in its toolbar) and its toolbar categories */
+M.CATEGORIES = [['army', 'Army'], ['creatures', 'Animals'], ['mythical', 'Mythical'], ['terrain', 'Terrain']];
+M.UNITS = [[0, 'Soldier', 'army'], [3, 'Flamethrower', 'army'], [4, 'Sniper', 'army'], [5, 'Roman', 'army'], [6, 'Grenadier', 'army'], [7, 'Archer', 'army'], [18, 'Cavalry', 'army'], [50, 'Ninja', 'army'],
+  [1, 'Boar', 'creatures'], [29, 'Rat', 'creatures'], [32, 'Ant', 'creatures'], [37, 'Ape', 'creatures'], [41, 'Alligator', 'creatures'], [43, 'Piranha', 'creatures'], [47, 'Snake', 'creatures'], [52, 'Cheetah', 'creatures'],
+  [2, 'Zombie', 'mythical'], [8, 'Slime', 'mythical'], [23, 'Mage', 'mythical'], [27, 'Giant', 'mythical'], [44, 'Dragon', 'mythical'], [48, 'Necromancer', 'mythical'],
+  [17, 'Barrel', 'terrain'], [31, 'Tree', 'terrain']];
+M.unitName = t => (M.UNITS.find(u => u[0] === t) || [t, 'Unit ' + t])[1];
+M.TROOP_CAPS = [10, 20, 30, 50, 75, 100, 150];
+M.BAN_MODES = [['none', 'No bans'], ['host', 'Host picks'], ['vote', 'Players vote']];
+
+/** full settings payload for update_settings (the server replaces all settings at once), with overrides */
+M.settingsArgs = (s, o) => {
+  const r = s.room, rules = r.rules || {};
+  return Object.assign({ p_mode: r.mode, p_prep: r.prepSeconds || 0, p_balanced: !!rules.balanced, p_max_units: rules.balanced ? rules.maxUnits : 50,
+    p_categories: rules.categories, p_ban_mode: rules.banMode || 'none', p_banned: rules.hostBanned || [] }, o || {});
+};
+M.rulesText = rules => !rules || !rules.balanced ? 'Standard rules' : 'Balanced · max ' + rules.maxUnits + ' troops · ' +
+  M.CATEGORIES.filter(c => rules.categories.includes(c[0])).map(c => c[1]).join(', ') + ((rules.banned || []).length ? ' · banned: ' + rules.banned.map(M.unitName).join(', ') : '');
+
 M.views = M.views || {};
+M.views.rulesBlock = (ui, s) => {
+  const { h } = M, isHost = s.room.hostId === s.me, rules = s.room.rules || {}, set = o => ui.run(null, () => ui.app.rm.act('update_settings', M.settingsArgs(s, o)));
+  const ALL = M.CATEGORIES.map(c => c[0]);
+  const toggle = h('button', { class: 'balance-toggle' + (rules.balanced ? ' on' : ''), disabled: !isHost,
+    onclick: () => set(rules.balanced ? { p_balanced: false } : { p_balanced: true, p_max_units: 50, p_categories: ALL, p_ban_mode: 'none', p_banned: [] }) },
+    h('span', { class: 'micon' }, '⚖'), h('span', { class: 'bt' }, h('b', {}, 'Balanced competition'), h('small', {}, rules.balanced ? 'On - limits below apply to everyone' : 'Off - standard rules, no limits')), h('span', { class: 'sw' }));
+  const head = h('div', { class: 'section-title' }, 'Rules', !isHost ? h('small', {}, 'host chooses') : null);
+  if (!rules.balanced) return h('div', {}, head, toggle);
+  const caps = h('div', { class: 'chips' }, M.TROOP_CAPS.map(n => h('button', { class: 'chip' + (rules.maxUnits === n ? ' sel' : ''), disabled: !isHost, onclick: () => set({ p_max_units: n }) }, n + '')));
+  const cats = h('div', { class: 'chips' }, M.CATEGORIES.map(([id, label]) => { const on = rules.categories.includes(id);
+    return h('button', { class: 'chip' + (on ? ' sel' : ''), disabled: !isHost, title: on ? 'allowed' : 'not allowed', onclick: () => { const next = on ? rules.categories.filter(c => c !== id) : rules.categories.concat(id); if (next.length) set({ p_categories: next }); } }, (on ? '✓ ' : '✗ ') + label); }));
+  const modes = h('div', { class: 'chips' }, M.BAN_MODES.map(([id, label]) => h('button', { class: 'chip' + (rules.banMode === id ? ' sel' : ''), disabled: !isHost, onclick: () => set({ p_ban_mode: id, p_banned: id === 'host' ? (rules.hostBanned || []) : [] }) }, label)));
+  const mine = rules.myVotes || [], votes = rules.votes || {}, banned = rules.banned || [];
+  const unit = ([t, name, cat]) => {
+    const isBanned = banned.includes(t), voted = mine.includes(t), n = votes[String(t)] || 0;
+    let click = null, off = true;
+    if (rules.banMode === 'host' && isHost) { off = false; click = () => { const cur = rules.hostBanned || []; set({ p_banned: cur.includes(t) ? cur.filter(x => x !== t) : cur.concat(t) }); }; }
+    if (rules.banMode === 'vote') { off = false; click = () => { const next = voted ? mine.filter(x => x !== t) : mine.concat(t).slice(-2); ui.run(null, () => ui.app.rm.act('vote_ban', { p_units: next })); }; }
+    return h('button', { class: 'uchip' + (isBanned ? ' banned' : '') + (voted ? ' voted' : ''), disabled: off, title: isBanned ? name + ' is banned' : name, onclick: click },
+      name, rules.banMode === 'vote' && n ? h('i', {}, String(n)) : null);
+  };
+  const grid = rules.banMode === 'none' ? null : h('div', {},
+    h('p', { class: 'hint' }, rules.banMode === 'host' ? (isHost ? 'Tap a troop to ban it for everyone.' : 'The host picks which troops are banned.') : 'Vote to ban up to 2 troops - a troop is banned when more than half of the players vote for it. Tap to vote / unvote.'),
+    h('div', { class: 'uchips' }, M.UNITS.filter(u => rules.categories.includes(u[2])).map(unit)));
+  return h('div', {}, head, toggle,
+    h('div', { class: 'rulelabel' }, 'Troop limit per player'), caps,
+    h('div', { class: 'rulelabel' }, 'Allowed categories'), cats,
+    h('div', { class: 'rulelabel' }, 'Banned troops (optional)'), modes, grid,
+    h('p', { class: 'hint' }, M.rulesText(rules)));
+};
+
 M.views.lobby = (ui, s) => {
   const { h } = M, isHost = s.room.hostId === s.me, teams = s.room.mode === 'teams';
   const online = s.players.filter(p => p.online);
@@ -35,7 +85,7 @@ M.views.lobby = (ui, s) => {
 
   const teamBlock = teams ? h('div', { class: 'teams' }, M.TEAMS.map((t, i) => h('div', { class: 'team', style: { '--tc': t.color } },
     h('b', {}, t.name), h('small', {}, s.players.filter(p => p.team === i).map(p => p.name).join(', ') || 'empty')))) : null;
-  const setting = (mode, prep) => ui.run(null, () => ui.app.rm.act('update_settings', { p_mode: mode, p_prep: prep }));
+  const setting = (mode, prep) => ui.run(null, () => ui.app.rm.act('update_settings', M.settingsArgs(s, { p_mode: mode, p_prep: prep })));
   const prepNow = s.room.prepSeconds || 0;
   const modeCard = (id, icon, title, desc) => h('button', { class: 'mode ' + (s.room.mode === id ? ' sel' : ''), disabled: !isHost, onclick: () => setting(id, prepNow) },
     h('span', { class: 'micon' }, icon), h('b', {}, title), h('small', {}, desc));
@@ -51,6 +101,7 @@ M.views.lobby = (ui, s) => {
       modeCard('ffa', '⚔', 'Free-for-all', 'Every player for themselves in one battle.')),
     h('div', { class: 'section-title' }, 'Preparation time', !isHost ? h('small', {}, 'host chooses') : null),
     h('div', { class: 'chips' }, M.PREP_OPTIONS.map(([sec, label]) => h('button', { class: 'chip' + (prepNow === sec ? ' sel' : ''), disabled: !isHost, onclick: () => setting(s.room.mode, sec) }, label))),
+    M.views.rulesBlock(ui, s),
     isHost ? start : h('button', { class: 'btn big ' + (me && me.ready ? '' : 'primary'), onclick: e => ui.run(e.currentTarget, () => ui.app.rm.act('set_ready', { p_ready: !(me && me.ready) })) }, me && me.ready ? '✓ Ready - click to cancel' : 'I\'m ready'),
     ui.leaveBtn());
 };

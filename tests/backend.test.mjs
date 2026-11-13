@@ -27,7 +27,8 @@ async function startedMatch(n, mode, teams, prep = 180) {
   return { code, s: await st(0, code) };
 }
 const zoneOf = (s, i) => s.match.zones.find(z => z.user === U[i]);
-const army = (z, k = 3) => ({ units: Array.from({ length: k }, (_, j) => [0, z.x + 20 + j * 10, z.y + 20, 0, 0]), groups: [0] });
+// armies use NORMALISED map coordinates (fractions 0..1 of the whole map)
+const army = (z, k = 3) => ({ units: Array.from({ length: k }, (_, j) => [0, z.x + 0.05 + j * 0.02, z.y + 0.1, 0, 0]), groups: [0] });
 
 test('rooms: create/join/full/invalid code/duplicate session/names', async () => {
   const code = await room(4);
@@ -71,17 +72,19 @@ test('start validation: needs 2 players, both teams, everyone ready, host only',
   assert.equal((await st(0, code)).phase, 'prep');
 });
 
-test('zones: 1v1, 2v2, 3v1 and free-for-all layouts', async () => {
+test('zones: original Team-battle halves of the whole map (1v1, 2v2, 3v1) and free-for-all sectors', async () => {
   let { s } = await startedMatch(2, 'teams', [0, 1]);
-  assert.deepEqual(s.match.zones.map(z => [z.x, z.w, z.faction]), [[0, 400, 20], [400, 400, 21]]);
+  assert.deepEqual(s.match.zones.map(z => [z.x, z.y, z.w, z.h, z.faction]), [[0, 0, 0.5, 1, 20], [0.5, 0, 0.5, 1, 21]]);
+  assert.deepEqual([s.match.field.w, s.match.field.h], [1280, 720]);
   ({ s } = await startedMatch(4, 'teams', [0, 0, 1, 1]));
-  assert.deepEqual(s.match.zones.map(z => [z.x, z.y, z.h, z.faction]), [[0, 0, 270, 20], [0, 270, 270, 20], [400, 0, 270, 21], [400, 270, 270, 21]]);
+  assert.deepEqual(s.match.zones.map(z => [z.x, z.w, z.h, z.faction]), [[0, 0.5, 1, 20], [0, 0.5, 1, 20], [0.5, 0.5, 1, 21], [0.5, 0.5, 1, 21]], 'teammates share their whole half');
   ({ s } = await startedMatch(4, 'teams', [0, 1, 1, 1]));
-  assert.deepEqual(s.match.zones.map(z => [z.x, Math.round(z.h), z.faction]), [[0, 540, 20], [400, 180, 21], [400, 180, 21], [400, 180, 21]]);
+  assert.deepEqual(s.match.zones.map(z => [z.x, z.faction]), [[0, 20], [0.5, 21], [0.5, 21], [0.5, 21]]);
   ({ s } = await startedMatch(4, 'ffa'));
-  assert.deepEqual(s.match.zones.map(z => [z.x, z.y, z.faction]), [[0, 0, 20], [400, 0, 21], [0, 270, 22], [400, 270, 23]]);
+  assert.deepEqual(s.match.zones.map(z => [z.x, z.y, z.faction]), [[0, 0, 20], [0.5, 0, 21], [0, 0.5, 22], [0.5, 0.5, 23]]);
   ({ s } = await startedMatch(3, 'ffa'));
   assert.deepEqual(s.match.zones.map(z => z.faction), [20, 21, 22]);
+  assert.ok(Math.abs(s.match.zones[1].x - 1 / 3) < 1e-6 && Math.abs(s.match.zones[1].w - 1 / 3) < 1e-6);
 });
 
 test('army: own zone only, validated, hidden from others until the battle', async () => {
@@ -89,11 +92,11 @@ test('army: own zone only, validated, hidden from others until the battle', asyn
   const z0 = zoneOf(s, 0), z1 = zoneOf(s, 1);
   await rpc(0, 'save_army', { p_code: code, p_army: army(z0, 5) });
   await fails(rpc(0, 'save_army', { p_code: code, p_army: army(z1, 2) }), 'outside_zone');
-  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [[99, z0.x + 5, 5, 0, 0]], groups: [0] } }), 'invalid_unit');
-  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: Array.from({ length: 301 }, () => [0, 5, 5, 0, 0]), groups: [0] } }), 'too_many_units');
-  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [[0, 5, 5, 0]], groups: [0] } }), 'invalid_army');
-  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [[0, 5, 5, 0, 7]], groups: [0] } }), 'invalid_army');
-  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [], groups: [], walls: [[z1.x + 5, 5, 1, 1]] } }), 'outside_zone');
+  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [[99, z0.x + 0.05, 0.1, 0, 0]], groups: [0] } }), 'invalid_unit');
+  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: Array.from({ length: 301 }, () => [0, 0.05, 0.1, 0, 0]), groups: [0] } }), 'too_many_units');
+  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [[0, 0.05, 0.1, 0]], groups: [0] } }), 'invalid_army');
+  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [[0, 0.05, 0.1, 0, 7]], groups: [0] } }), 'invalid_army');
+  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [], groups: [], walls: [[z1.x + 0.05, 0.1, 0.01, 0.01]] } }), 'outside_zone');
   const mine = await st(0, code), theirs = await st(1, code);
   assert.equal(mine.myArmy.units.length, 5);
   assert.deepEqual(theirs.armies, [], 'other armies are not exposed during preparation');
@@ -289,4 +292,92 @@ test('get_state can skip the (large, immutable) armies payload', async () => {
   assert.equal(full.armies.length, 2);
   assert.deepEqual(lean.armies, []);
   assert.ok(JSON.stringify(lean).length < JSON.stringify(full).length);
+});
+
+test('balanced competition: host-only rules, validation, snapshot in the match', async () => {
+  const code = await room(2);
+  const set = (i, o) => rpc(i, 'update_settings', Object.assign({ p_code: code, p_mode: 'teams', p_prep: 60, p_balanced: true, p_max_units: 30, p_categories: ['army', 'creatures'] }, o));
+  await fails(set(1, {}), 'not_host');
+  await fails(set(0, { p_max_units: 31 }), 'invalid_rules');
+  await fails(set(0, { p_categories: [] }), 'invalid_rules');
+  await fails(set(0, { p_categories: ['army', 'dragons'] }), 'invalid_rules');
+  await set(0, {});
+  let s = await st(1, code);
+  assert.deepEqual({ b: s.room.rules.balanced, m: s.room.rules.maxUnits, c: s.room.rules.categories }, { b: true, m: 30, c: ['army', 'creatures'] });
+  await set(0, { p_balanced: false });      // switching it off resets to unlimited + everything
+  s = await st(1, code);
+  assert.deepEqual({ b: s.room.rules.balanced, m: s.room.rules.maxUnits, c: s.room.rules.categories }, { b: false, m: 300, c: ['army', 'creatures', 'mythical', 'terrain'] });
+  await set(0, {});
+  await rpc(1, 'set_team', { p_code: code, p_target: U[1], p_team: 1 }).catch(() => {});
+  await rpc(0, 'set_team', { p_code: code, p_target: U[1], p_team: 1 });
+  await rpc(1, 'set_ready', { p_code: code, p_ready: true });
+  await rpc(0, 'start_match', { p_code: code });
+  s = await st(1, code);
+  assert.deepEqual({ b: s.match.rules.balanced, m: s.match.rules.maxUnits, c: s.match.rules.categories, x: s.match.rules.banned }, { b: true, m: 30, c: ['army', 'creatures'], x: [] });
+});
+
+test('balanced competition: troop cap, categories and terrain are enforced by the server', async () => {
+  const code = await room(2);
+  await rpc(0, 'update_settings', { p_code: code, p_mode: 'teams', p_prep: 60, p_balanced: true, p_max_units: 20, p_categories: ['army', 'mythical'] });
+  await rpc(0, 'set_team', { p_code: code, p_target: U[1], p_team: 1 });
+  await rpc(1, 'set_ready', { p_code: code, p_ready: true });
+  await rpc(0, 'start_match', { p_code: code });
+  const s = await st(0, code), z = zoneOf(s, 0);
+  const unit = (type, j) => [type, z.x + 0.05 + (j % 10) * 0.01, z.y + 0.1 + Math.floor(j / 10) * 0.02, 0, -1];
+  await rpc(0, 'save_army', { p_code: code, p_army: { units: Array.from({ length: 20 }, (_, j) => unit(0, j)), groups: [] } });      // exactly the cap
+  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: Array.from({ length: 21 }, (_, j) => unit(0, j)), groups: [] } }), 'over_unit_limit');
+  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [unit(1, 0)], groups: [] } }), 'category_not_allowed');   // boar = creatures
+  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [unit(17, 0)], groups: [] } }), 'category_not_allowed');  // barrel = terrain
+  await rpc(0, 'save_army', { p_code: code, p_army: { units: [unit(2, 0), unit(44, 1)], groups: [] } });                    // zombie + dragon = mythical
+  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [], groups: [], mines: [[z.x + 0.1, 0.2]] } }), 'category_not_allowed');
+  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [], groups: [], walls: [[z.x + 0.1, 0.2, 0.05, 0.01]] } }), 'category_not_allowed');
+});
+
+test('standard (unbalanced) rooms keep everything allowed', async () => {
+  const code = await room(2);
+  await rpc(0, 'set_team', { p_code: code, p_target: U[1], p_team: 1 });
+  await rpc(1, 'set_ready', { p_code: code, p_ready: true });
+  await rpc(0, 'start_match', { p_code: code });
+  const s = await st(0, code), z = zoneOf(s, 0);
+  await rpc(0, 'save_army', { p_code: code, p_army: { units: [[17, z.x + 0.1, 0.2, 0, -1], [44, z.x + 0.12, 0.2, 0, -1]], groups: [], mines: [[z.x + 0.1, 0.3]], walls: [[z.x + 0.1, 0.4, 0.05, 0.01]] } });
+  assert.deepEqual({ b: s.match.rules.balanced, m: s.match.rules.maxUnits }, { b: false, m: 300 });
+});
+
+test('troop bans: host picks, or players vote (strict majority); enforced on armies', async () => {
+  let code = await room(2);
+  const set = (o) => rpc(0, 'update_settings', Object.assign({ p_code: code, p_mode: 'teams', p_prep: 60, p_balanced: true, p_max_units: 50, p_categories: ['army', 'mythical'], p_ban_mode: 'host', p_banned: [44, 27] }, o));
+  await fails(set({ p_banned: [999] }), 'invalid_rules');
+  await fails(set({ p_banned: [0, 3, 4, 5, 6, 7, 18, 50, 2, 8, 23, 27, 44, 48] }), 'invalid_rules');
+  await set({});
+  let s = await st(1, code);
+  assert.deepEqual(s.room.rules.banned, [27, 44]);
+  await rpc(0, 'set_team', { p_code: code, p_target: U[1], p_team: 1 });
+  await rpc(1, 'set_ready', { p_code: code, p_ready: true });
+  await fails(rpc(1, 'vote_ban', { p_code: code, p_units: [0] }), 'voting_off');
+  await rpc(0, 'start_match', { p_code: code });
+  s = await st(0, code);
+  assert.deepEqual(s.match.rules.banned, [27, 44]);
+  const z = zoneOf(s, 0);
+  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [[44, z.x + 0.1, 0.2, 0, -1]], groups: [] } }), 'unit_banned');
+  await rpc(0, 'save_army', { p_code: code, p_army: { units: [[2, z.x + 0.1, 0.2, 0, -1]], groups: [] } });
+
+  code = await room(3);
+  await rpc(0, 'update_settings', { p_code: code, p_mode: 'ffa', p_prep: 60, p_balanced: true, p_max_units: 50, p_categories: null, p_ban_mode: 'vote', p_banned: null });
+  await fails(rpc(1, 'vote_ban', { p_code: code, p_units: [1, 2, 3] }), 'invalid_vote');
+  await fails(rpc(1, 'vote_ban', { p_code: code, p_units: [999] }), 'invalid_vote');
+  await rpc(0, 'vote_ban', { p_code: code, p_units: [44, 0] });
+  await rpc(1, 'vote_ban', { p_code: code, p_units: [44] });
+  s = await st(2, code);
+  assert.deepEqual(s.room.rules.banned, [44], '2 of 3 players is a strict majority');
+  assert.equal(s.room.rules.votes['44'], 2);
+  assert.equal(s.room.rules.votes['0'], 1);
+  await rpc(1, 'vote_ban', { p_code: code, p_units: [] });
+  assert.deepEqual((await st(2, code)).room.rules.banned, []);
+  await rpc(1, 'vote_ban', { p_code: code, p_units: [44] });
+  await rpc(2, 'set_ready', { p_code: code, p_ready: true });
+  await rpc(1, 'set_ready', { p_code: code, p_ready: true });
+  await rpc(0, 'start_match', { p_code: code });
+  s = await st(0, code);
+  assert.deepEqual(s.match.rules.banned, [44]);
+  await fails(rpc(0, 'vote_ban', { p_code: code, p_units: [1] }), 'game_in_progress');
 });

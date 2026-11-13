@@ -108,6 +108,18 @@ create table if not exists public.room_pulse (
   v       bigint not null default 0
 );
 
+-- balanced-competition rules (chosen by the host): troop cap, allowed categories
+alter table public.rooms   add column if not exists balanced   boolean not null default false;
+alter table public.rooms   add column if not exists max_units  int     not null default 300;
+alter table public.rooms   add column if not exists categories text[]  not null default array['army','creatures','mythical','terrain'];
+alter table public.rooms   add column if not exists ban_mode   text    not null default 'none';
+alter table public.rooms   add column if not exists banned     int[]   not null default '{}';
+alter table public.players add column if not exists ban_votes  int[]   not null default '{}';
+alter table public.matches add column if not exists banned     int[]   not null default '{}';
+alter table public.matches add column if not exists balanced   boolean not null default false;
+alter table public.matches add column if not exists max_units  int     not null default 300;
+alter table public.matches add column if not exists categories text[]  not null default array['army','creatures','mythical','terrain'];
+
 alter table public.rooms         enable row level security;
 alter table public.players       enable row level security;
 alter table public.matches       enable row level security;
@@ -126,9 +138,11 @@ create or replace function public._clean(t text, maxlen int) returns text langua
   select left(btrim(regexp_replace(regexp_replace(regexp_replace(coalesce(t,''), '<[^>]*>', '', 'g'), '[[:cntrl:]<>]', '', 'g'), '\s+', ' ', 'g')), maxlen)
 $$;
 
--- battlefield size in simulation units (the client pins the original game's field to exactly this)
-create or replace function public._field_w() returns real language sql immutable as $$ select 800::real $$;
-create or replace function public._field_h() returns real language sql immutable as $$ select 540::real $$;
+-- Armies are stored in NORMALISED map coordinates (0..1 of each player's own full-window map), so every player draws on
+-- their whole map whatever their screen size. The battle itself runs on this fixed canonical field (simulation units),
+-- scaled to fit each window, so all copies of the simulation are identical.
+create or replace function public._field_w() returns real language sql immutable as $$ select 1280::real $$;
+create or replace function public._field_h() returns real language sql immutable as $$ select 720::real $$;
 
 create or replace function public._bump(p_room uuid) returns void language sql as $$
   insert into public.room_pulse(room_id, v) select id, 1 from public.rooms where id = p_room
@@ -149,6 +163,32 @@ create policy room_pulse_member_read on public.room_pulse for select to authenti
 create or replace function public._unit_types() returns int[] language sql immutable as $$
   select array[0,3,4,5,6,7,18,50,1,29,32,37,41,43,47,52,2,8,23,27,44,48,17,31]
 $$;
+
+-- the original game's toolbar categories: army / creatures (shown as "Animals") / mythical / terrain
+create or replace function public._unit_category(t int) returns text language sql immutable as $$
+  select case when t = any(array[0,3,4,5,6,7,18,50]) then 'army'
+              when t = any(array[1,29,32,37,41,43,47,52]) then 'creatures'
+              when t = any(array[2,8,23,27,44,48]) then 'mythical'
+              when t = any(array[17,31]) then 'terrain' end
+$$;
+
+-- troops banned in a balanced room: picked by the host ('host') or by a strict majority of the players' votes ('vote')
+create or replace function public._effective_banned(p_room uuid) returns int[]
+language plpgsql stable security definer set search_path = public as $$
+declare r public.rooms%rowtype; n int; res int[];
+begin
+  select * into r from public.rooms where id = p_room;
+  if not found or not r.balanced then return '{}'; end if;
+  if r.ban_mode = 'host' then return r.banned; end if;
+  if r.ban_mode = 'vote' then
+    select count(*) into n from public.players where room_id = p_room and status = 'active';
+    select coalesce(array_agg(t.u order by t.u), '{}') into res from (
+      select x.u from (select unnest(p.ban_votes) u from public.players p where p.room_id = p_room and p.status = 'active') x
+       group by x.u having count(*) > n / 2.0) t;
+    return res;
+  end if;
+  return '{}';
+end $$;
 
 -- ------------------------------------------------------------ maintenance
 create or replace function public._lock_prep(p_match uuid) returns void
@@ -374,18 +414,57 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
--- p_prep: 60,180,300,600 seconds or 0 = unlimited
-create or replace function public.update_settings(p_code text, p_mode text, p_prep int) returns jsonb
+drop function if exists public.update_settings(text, text, int);
+drop function if exists public.update_settings(text, text, int, boolean, int, text[]);
+-- p_prep: 60,180,300,600 seconds or 0 = unlimited.  Balanced competition: p_balanced + troop cap + allowed categories
+-- + optional troop bans (p_ban_mode 'none' | 'host' (host picks p_banned) | 'vote' (players vote in the lobby)).
+create or replace function public.update_settings(p_code text, p_mode text, p_prep int, p_balanced boolean default false, p_max_units int default 300,
+                                                  p_categories text[] default null, p_ban_mode text default 'none', p_banned int[] default null) returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare r public.rooms%rowtype; v uuid := public._uid(); m public.matches%rowtype;
+declare r public.rooms%rowtype; v uuid := public._uid(); m public.matches%rowtype; cats text[]; bn int[] := '{}'; ok boolean := false; t int; bal boolean := coalesce(p_balanced, false);
 begin
   r := public._enter(p_code);
   if r.host_id <> v then raise exception 'not_host'; end if;
   if r.current_match_id is not null then select * into m from public.matches where id = r.current_match_id; if m.phase <> 'finished' then raise exception 'game_in_progress'; end if; end if;
   if p_mode not in ('ffa','teams') then raise exception 'invalid_mode'; end if;
   if p_prep not in (0,60,180,300,600) then raise exception 'invalid_timer'; end if;
-  update public.rooms set mode = p_mode, prep_seconds = nullif(p_prep, 0) where id = r.id;
+  if p_max_units not in (10,20,30,50,75,100,150,300) then raise exception 'invalid_rules'; end if;
+  if coalesce(p_ban_mode, 'none') not in ('none','host','vote') then raise exception 'invalid_rules'; end if;
+  cats := coalesce(p_categories, array['army','creatures','mythical','terrain']);
+  if coalesce(array_length(cats, 1), 0) = 0 or not (cats <@ array['army','creatures','mythical','terrain']) then raise exception 'invalid_rules'; end if;
+  if bal and coalesce(p_ban_mode, 'none') = 'host' then
+    bn := coalesce(p_banned, '{}');
+    if array_length(bn, 1) > 20 or not (bn <@ public._unit_types()) then raise exception 'invalid_rules'; end if;
+  end if;
+  if bal then   -- at least one troop must remain placeable
+    foreach t in array public._unit_types() loop
+      if public._unit_category(t) = any(cats) and not (t = any(bn)) then ok := true; end if;
+    end loop;
+    if not ok then raise exception 'invalid_rules'; end if;
+  end if;
+  update public.rooms set mode = p_mode, prep_seconds = nullif(p_prep, 0), balanced = bal,
+         max_units = case when bal then p_max_units else 300 end,
+         categories = case when bal then cats else array['army','creatures','mythical','terrain'] end,
+         ban_mode = case when bal then coalesce(p_ban_mode, 'none') else 'none' end,
+         banned = case when bal and coalesce(p_ban_mode, 'none') = 'host' then (select coalesce(array_agg(distinct x order by x), '{}') from unnest(bn) x) else '{}' end
+   where id = r.id;
+  if not (bal and coalesce(p_ban_mode, 'none') = 'vote') then update public.players set ban_votes = '{}' where room_id = r.id; end if;
   update public.players set ready = false where room_id = r.id and user_id <> r.host_id;
+  perform public._bump(r.id);
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- each player may vote to ban up to 2 troops; a troop is banned when a strict majority of the players voted for it
+create or replace function public.vote_ban(p_code text, p_units int[]) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare r public.rooms%rowtype; v uuid := public._uid(); m public.matches%rowtype; u int[] := coalesce(p_units, '{}'); t int;
+begin
+  r := public._enter(p_code);
+  if r.current_match_id is not null then select * into m from public.matches where id = r.current_match_id; if m.phase <> 'finished' then raise exception 'game_in_progress'; end if; end if;
+  if not r.balanced or r.ban_mode <> 'vote' then raise exception 'voting_off'; end if;
+  if array_length(u, 1) > 2 or not (u <@ public._unit_types()) then raise exception 'invalid_vote'; end if;
+  foreach t in array u loop if not (public._unit_category(t) = any(r.categories)) then raise exception 'invalid_vote'; end if; end loop;
+  update public.players set ban_votes = (select coalesce(array_agg(distinct x), '{}') from unnest(u) x) where room_id = r.id and user_id = v;
   perform public._bump(r.id);
   return jsonb_build_object('ok', true);
 end $$;
@@ -444,23 +523,21 @@ begin
   if r.mode = 'teams' and (n0 < 1 or n1 < 1) then raise exception 'need_both_teams'; end if;
   if exists (select 1 from public.players where room_id = r.id and status = 'active' and not ready and user_id <> r.host_id) then raise exception 'not_all_ready'; end if;
 
-  insert into public.matches(room_id, number, mode, prep_seconds, seed, prep_ends_at)
-    values (r.id, r.match_counter + 1, r.mode, r.prep_seconds, (floor(random() * 2147483000))::int + 1,
+  insert into public.matches(room_id, number, mode, prep_seconds, balanced, max_units, categories, banned, seed, prep_ends_at)
+    values (r.id, r.match_counter + 1, r.mode, r.prep_seconds, r.balanced, r.max_units, r.categories, public._effective_banned(r.id), (floor(random() * 2147483000))::int + 1,
             case when r.prep_seconds is null then null else now() + make_interval(secs => r.prep_seconds) end)
     returning id into v_id;
 
   for pl in select user_id, name, team from public.players where room_id = r.id and status = 'active' order by joined_at, user_id loop
     if r.mode = 'ffa' then
       fac := 20 + i;
-      if n = 2 then zx := i * fw / 2; zy := 0; zw := fw / 2; zh := fh;
-      elsif n = 3 then zx := i * fw / 3; zy := 0; zw := fw / 3; zh := fh;
-      else zx := (i % 2) * fw / 2; zy := (i / 2) * fh / 2; zw := fw / 2; zh := fh / 2; end if;
+      if n = 2 then zx := i * 0.5; zy := 0; zw := 0.5; zh := 1;
+      elsif n = 3 then zx := i / 3.0; zy := 0; zw := 1 / 3.0; zh := 1;
+      else zx := (i % 2) * 0.5; zy := (i / 2) * 0.5; zw := 0.5; zh := 0.5; end if;
     else
+      -- the original Team battle layout: red = left half, blue = right half of the WHOLE map (teammates share their half)
       fac := 20 + pl.team;
-      sz := case when pl.team = 0 then n0 else n1 end;
-      select count(*) into idx from public.players p2 where p2.room_id = r.id and p2.status = 'active' and p2.team = pl.team
-         and (p2.joined_at, p2.user_id) < ((select joined_at from public.players where room_id = r.id and user_id = pl.user_id), pl.user_id);
-      zx := pl.team * fw / 2; zw := fw / 2; zh := fh / sz; zy := idx * zh;
+      zx := pl.team * 0.5; zy := 0; zw := 0.5; zh := 1;
     end if;
     insert into public.match_players(match_id, user_id, name, team, slot, faction, zx, zy, zw, zh)
       values (v_id, pl.user_id, pl.name, pl.team, i, fac, zx, zy, zw, zh);
@@ -492,7 +569,7 @@ begin
 end $$;
 
 -- A player's finished army (their own drawing, exported by the client from the original game).
--- Shape: {"units": [[type,x,y,heading,group], ...], "groups": [type, ...], "walls": [[x,y,w,h],...], "mines": [[x,y],...]}
+-- Shape (x,y,w,h are fractions 0..1 of the whole map): {"units": [[type,x,y,heading,group], ...], "groups": [type, ...], "walls": [[x,y,w,h],...], "mines": [[x,y],...]}
 create or replace function public.save_army(p_code text, p_army jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -509,6 +586,9 @@ begin
   if jsonb_typeof(coalesce(p_army->'units', '[]'::jsonb)) <> 'array' or jsonb_typeof(coalesce(p_army->'groups', '[]'::jsonb)) <> 'array' then raise exception 'invalid_army'; end if;
   cnt := jsonb_array_length(coalesce(p_army->'units', '[]'::jsonb));
   if cnt > 300 then raise exception 'too_many_units'; end if;
+  if cnt > m.max_units then raise exception 'over_unit_limit'; end if;
+  if m.balanced and not ('terrain' = any(m.categories)) and (jsonb_array_length(coalesce(p_army->'walls', '[]'::jsonb)) > 0 or jsonb_array_length(coalesce(p_army->'mines', '[]'::jsonb)) > 0) then raise exception 'category_not_allowed'; end if;
+  if m.balanced and (jsonb_array_length(coalesce(p_army->'walls', '[]'::jsonb)) > 600 or jsonb_array_length(coalesce(p_army->'mines', '[]'::jsonb)) > 30) then raise exception 'over_unit_limit'; end if;
   ng := jsonb_array_length(coalesce(p_army->'groups', '[]'::jsonb));
   if ng > 300 then raise exception 'too_many_units'; end if;
   for u in select * from jsonb_array_elements(coalesce(p_army->'units', '[]'::jsonb)) loop
@@ -517,7 +597,9 @@ begin
        or jsonb_typeof(u->3) <> 'number' or jsonb_typeof(u->4) <> 'number' then raise exception 'invalid_army'; end if;
     t := (u->>0)::int; x := (u->>1)::real; y := (u->>2)::real;
     if not (t = any(public._unit_types())) then raise exception 'invalid_unit'; end if;
-    if x < mp.zx - 1 or x > mp.zx + mp.zw + 1 or y < mp.zy - 1 or y > mp.zy + mp.zh + 1 then raise exception 'outside_zone'; end if;
+    if not (public._unit_category(t) = any(m.categories)) then raise exception 'category_not_allowed'; end if;
+    if t = any(m.banned) then raise exception 'unit_banned'; end if;
+    if x < mp.zx - 0.003 or x > mp.zx + mp.zw + 0.003 or y < mp.zy - 0.003 or y > mp.zy + mp.zh + 0.003 then raise exception 'outside_zone'; end if;
     if (u->>4)::int < -1 or (u->>4)::int >= greatest(ng, 1) then raise exception 'invalid_army'; end if;
   end loop;
   for el in select * from jsonb_array_elements(coalesce(p_army->'groups', '[]'::jsonb)) loop
@@ -525,11 +607,11 @@ begin
   end loop;
   for el in select * from jsonb_array_elements(coalesce(p_army->'walls', '[]'::jsonb)) loop
     if jsonb_typeof(el) <> 'array' or jsonb_array_length(el) <> 4 then raise exception 'invalid_army'; end if;
-    if (el->>0)::real < mp.zx - 1 or (el->>0)::real > mp.zx + mp.zw + 1 or (el->>1)::real < mp.zy - 1 or (el->>1)::real > mp.zy + mp.zh + 1 then raise exception 'outside_zone'; end if;
+    if (el->>0)::real < mp.zx - 0.003 or (el->>0)::real > mp.zx + mp.zw + 0.003 or (el->>1)::real < mp.zy - 0.003 or (el->>1)::real > mp.zy + mp.zh + 0.003 then raise exception 'outside_zone'; end if;
   end loop;
   for el in select * from jsonb_array_elements(coalesce(p_army->'mines', '[]'::jsonb)) loop
     if jsonb_typeof(el) <> 'array' or jsonb_array_length(el) <> 2 then raise exception 'invalid_army'; end if;
-    if (el->>0)::real < mp.zx - 1 or (el->>0)::real > mp.zx + mp.zw + 1 or (el->>1)::real < mp.zy - 1 or (el->>1)::real > mp.zy + mp.zh + 1 then raise exception 'outside_zone'; end if;
+    if (el->>0)::real < mp.zx - 0.003 or (el->>0)::real > mp.zx + mp.zw + 0.003 or (el->>1)::real < mp.zy - 0.003 or (el->>1)::real > mp.zy + mp.zh + 0.003 then raise exception 'outside_zone'; end if;
   end loop;
   insert into public.armies(match_id, user_id, data, units) values (m.id, v, p_army, cnt)
     on conflict (match_id, user_id) do update set data = excluded.data, units = excluded.units, updated_at = now();
@@ -624,6 +706,7 @@ begin
 end $$;
 
 -- Single read endpoint (also the heartbeat). Other players' armies stay hidden until the battle starts.
+drop function if exists public.get_state(text, text);
 create or replace function public.get_state(p_code text, p_client text default null, p_armies boolean default true) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -666,6 +749,7 @@ begin
     select data into v_my from public.armies where match_id = m.id and user_id = v;
     v_match := jsonb_build_object(
       'id', m.id, 'number', m.number, 'phase', m.phase, 'mode', m.mode, 'prepSeconds', m.prep_seconds, 'seed', m.seed,
+      'rules', jsonb_build_object('balanced', m.balanced, 'maxUnits', m.max_units, 'categories', m.categories, 'banned', m.banned),
       'prepRemainingMs', v_prep_rem, 'startsInMs', v_starts, 'elapsedMs', v_elapsed, 'paused', m.paused,
       'outcome', m.outcome, 'result', m.result,
       'field', jsonb_build_object('w', public._field_w(), 'h', public._field_h()),
@@ -683,7 +767,11 @@ begin
     select cm.id, cm.user_id as "userId", cm.name, cm.text, cm.created_at as "at" from public.chat_messages cm where cm.room_id = r.id order by cm.id desc limit 60) c;
 
   return jsonb_build_object('serverNow', now(), 'me', v,
-    'room', jsonb_build_object('id', r.id, 'code', r.code, 'hostId', r.host_id, 'mode', r.mode, 'prepSeconds', r.prep_seconds),
+    'room', jsonb_build_object('id', r.id, 'code', r.code, 'hostId', r.host_id, 'mode', r.mode, 'prepSeconds', r.prep_seconds,
+                               'rules', jsonb_build_object('balanced', r.balanced, 'maxUnits', r.max_units, 'categories', r.categories, 'banMode', r.ban_mode,
+                                          'banned', public._effective_banned(r.id), 'hostBanned', r.banned,
+                                          'votes', (select coalesce(jsonb_object_agg(x.u::text, x.c), '{}'::jsonb) from (select u, count(*) c from (select unnest(p.ban_votes) u from public.players p where p.room_id = r.id and p.status = 'active') y group by u) x),
+                                          'myVotes', me.ban_votes)),
     'phase', v_phase, 'match', v_match, 'players', v_players, 'armies', v_armies, 'myArmy', v_my, 'history', v_hist, 'chat', v_chat);
 end $$;
 
@@ -694,7 +782,7 @@ grant select on public.room_pulse to authenticated;
 grant execute on function public._is_member(uuid) to authenticated;
 grant execute on function
   public.create_room(text,text), public.join_room(text,text,text), public.leave_room(text), public.kick_player(text,uuid),
-  public.update_settings(text,text,int), public.set_team(text,uuid,int), public.set_ready(text,boolean), public.start_match(text),
+  public.update_settings(text,text,int,boolean,int,text[],text,int[]), public.vote_ban(text,int[]), public.set_team(text,uuid,int), public.set_ready(text,boolean), public.start_match(text),
   public.back_to_lobby(text), public.save_army(text,jsonb), public.end_prep(text), public.battle_control(text,text),
   public.report_result(text,int,int,text,jsonb), public.confirm_result(text,int), public.send_chat(text,text), public.get_state(text,text,boolean)
   to authenticated;
