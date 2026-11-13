@@ -78,7 +78,7 @@ class UI {
   }
   hideZones() { if (this.zonesEl) this.zonesEl.remove(); this.zonesEl = null; }
   hideField() { this.hideZones(); this.fieldLayer.classList.remove('on'); this.fieldLayer.classList.remove('plain'); [...this.fieldLayer.querySelectorAll('.bigcount, .markers')].forEach(e => e.remove()); }
-  setArmyInfo(a) { const st = this.app.rm.state, r = st && st.match && st.match.rules; if (this.refs.armyInfo) this.refs.armyInfo.textContent = `${a.units.length}` + (r && r.balanced ? ' / ' + r.maxUnits : '') + ' units' + (a.walls.length ? ` · ${a.walls.length} wall pieces` : '') + (a.mines.length ? ` · ${a.mines.length} mines` : ''); }
+  setArmyInfo(a) { const st = this.app.rm.state, r = st && st.match && st.match.rules; if (this.refs.armyInfo) this.refs.armyInfo.textContent = `${a.units.length}` + (r && r.balanced && r.maxUnits < M.UNLIMITED ? ' / ' + r.maxUnits : '') + ' units' + (a.walls.length ? ` · ${a.walls.length} wall pieces` : '') + (a.mines.length ? ` · ${a.mines.length} mines` : ''); }
   setSaved(ok) { if (this.refs.saved) { this.refs.saved.textContent = ok ? '✓ saved to the room' : 'not saved yet…'; this.refs.saved.className = 'saved ' + (ok ? 'ok' : ''); } }
 
   /* ---------------------------------------------------------------- rendering */

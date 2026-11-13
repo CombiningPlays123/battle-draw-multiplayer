@@ -79,3 +79,7 @@ Two real tabs: after a finished 1v1 team match, the host changed the mode (Team 
 Balanced competition with a 30-troop cap, all from the results screen; the other player saw the new settings (read-only), pressed "Ready for a rematch",
 and the host's Rematch started match #2 with exactly those settings (free-for-all sectors, "0 / 30 units"). The backend already allowed settings and team
 changes between matches (covered by the existing tests).
+
+## G. Custom / unlimited troop limit
+Backend: any limit 1-999 accepted, 1000 = unlimited, 0 and 1001 rejected (20/20 tests). Browser (real UI): the host pressed ∞ Unlimited (stored 1000, shown as "unlimited troops"), typed 37 and pressed "Set custom limit" (stored 37), and typing 5000 was refused with a message.
+Not tested: battles with thousands of units - the engine allows 32 768 units, but very large armies may run slowly on weak computers (results stay identical because the simulation is deterministic).

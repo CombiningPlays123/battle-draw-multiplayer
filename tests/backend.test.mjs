@@ -93,7 +93,7 @@ test('army: own zone only, validated, hidden from others until the battle', asyn
   await rpc(0, 'save_army', { p_code: code, p_army: army(z0, 5) });
   await fails(rpc(0, 'save_army', { p_code: code, p_army: army(z1, 2) }), 'outside_zone');
   await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [[99, z0.x + 0.05, 0.1, 0, 0]], groups: [0] } }), 'invalid_unit');
-  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: Array.from({ length: 301 }, () => [0, 0.05, 0.1, 0, 0]), groups: [0] } }), 'too_many_units');
+  await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: Array.from({ length: 1001 }, () => [0, 0.05, 0.1, 0, 0]), groups: [0] } }), 'too_many_units');
   await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [[0, 0.05, 0.1, 0]], groups: [0] } }), 'invalid_army');
   await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [[0, 0.05, 0.1, 0, 7]], groups: [0] } }), 'invalid_army');
   await fails(rpc(0, 'save_army', { p_code: code, p_army: { units: [], groups: [], walls: [[z1.x + 0.05, 0.1, 0.01, 0.01]] } }), 'outside_zone');
@@ -298,7 +298,12 @@ test('balanced competition: host-only rules, validation, snapshot in the match',
   const code = await room(2);
   const set = (i, o) => rpc(i, 'update_settings', Object.assign({ p_code: code, p_mode: 'teams', p_prep: 60, p_balanced: true, p_max_units: 30, p_categories: ['army', 'creatures'] }, o));
   await fails(set(1, {}), 'not_host');
-  await fails(set(0, { p_max_units: 31 }), 'invalid_rules');
+  await fails(set(0, { p_max_units: 0 }), 'invalid_rules');
+  await fails(set(0, { p_max_units: 1001 }), 'invalid_rules');
+  await set(0, { p_max_units: 37 });
+  assert.equal((await st(1, code)).room.rules.maxUnits, 37, 'any custom limit is allowed');
+  await set(0, { p_max_units: 1000 });
+  assert.equal((await st(1, code)).room.rules.maxUnits, 1000, '1000 = unlimited');
   await fails(set(0, { p_categories: [] }), 'invalid_rules');
   await fails(set(0, { p_categories: ['army', 'dragons'] }), 'invalid_rules');
   await set(0, {});
@@ -306,7 +311,7 @@ test('balanced competition: host-only rules, validation, snapshot in the match',
   assert.deepEqual({ b: s.room.rules.balanced, m: s.room.rules.maxUnits, c: s.room.rules.categories }, { b: true, m: 30, c: ['army', 'creatures'] });
   await set(0, { p_balanced: false });      // switching it off resets to unlimited + everything
   s = await st(1, code);
-  assert.deepEqual({ b: s.room.rules.balanced, m: s.room.rules.maxUnits, c: s.room.rules.categories }, { b: false, m: 300, c: ['army', 'creatures', 'mythical', 'terrain'] });
+  assert.deepEqual({ b: s.room.rules.balanced, m: s.room.rules.maxUnits, c: s.room.rules.categories }, { b: false, m: 1000, c: ['army', 'creatures', 'mythical', 'terrain'] });
   await set(0, {});
   await rpc(1, 'set_team', { p_code: code, p_target: U[1], p_team: 1 }).catch(() => {});
   await rpc(0, 'set_team', { p_code: code, p_target: U[1], p_team: 1 });
@@ -340,7 +345,7 @@ test('standard (unbalanced) rooms keep everything allowed', async () => {
   await rpc(0, 'start_match', { p_code: code });
   const s = await st(0, code), z = zoneOf(s, 0);
   await rpc(0, 'save_army', { p_code: code, p_army: { units: [[17, z.x + 0.1, 0.2, 0, -1], [44, z.x + 0.12, 0.2, 0, -1]], groups: [], mines: [[z.x + 0.1, 0.3]], walls: [[z.x + 0.1, 0.4, 0.05, 0.01]] } });
-  assert.deepEqual({ b: s.match.rules.balanced, m: s.match.rules.maxUnits }, { b: false, m: 300 });
+  assert.deepEqual({ b: s.match.rules.balanced, m: s.match.rules.maxUnits }, { b: false, m: 1000 });
 });
 
 test('troop bans: host picks, or players vote (strict majority); enforced on armies', async () => {

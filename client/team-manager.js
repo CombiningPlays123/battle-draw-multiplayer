@@ -18,6 +18,7 @@ M.UNITS = [[0, 'Soldier', 'army'], [3, 'Flamethrower', 'army'], [4, 'Sniper', 'a
   [17, 'Barrel', 'terrain'], [31, 'Tree', 'terrain']];
 M.unitName = t => (M.UNITS.find(u => u[0] === t) || [t, 'Unit ' + t])[1];
 M.TROOP_CAPS = [10, 20, 30, 50, 75, 100, 150];
+M.UNLIMITED = 1000;                               // technical maximum per player
 M.BAN_MODES = [['none', 'No bans'], ['host', 'Host picks'], ['vote', 'Players vote']];
 
 /** full settings payload for update_settings (the server replaces all settings at once), with overrides */
@@ -26,7 +27,7 @@ M.settingsArgs = (s, o) => {
   return Object.assign({ p_mode: r.mode, p_prep: r.prepSeconds || 0, p_balanced: !!rules.balanced, p_max_units: rules.balanced ? rules.maxUnits : 50,
     p_categories: rules.categories, p_ban_mode: rules.banMode || 'none', p_banned: rules.hostBanned || [] }, o || {});
 };
-M.rulesText = rules => !rules || !rules.balanced ? 'Standard rules' : 'Balanced · max ' + rules.maxUnits + ' troops · ' +
+M.rulesText = rules => !rules || !rules.balanced ? 'Standard rules' : 'Balanced · ' + (rules.maxUnits >= M.UNLIMITED ? 'unlimited troops' : 'max ' + rules.maxUnits + ' troops') + ' · ' +
   M.CATEGORIES.filter(c => rules.categories.includes(c[0])).map(c => c[1]).join(', ') + ((rules.banned || []).length ? ' · banned: ' + rules.banned.map(M.unitName).join(', ') : '');
 
 M.views = M.views || {};
@@ -38,7 +39,13 @@ M.views.rulesBlock = (ui, s) => {
     h('span', { class: 'micon' }, '⚖'), h('span', { class: 'bt' }, h('b', {}, 'Balanced competition'), h('small', {}, rules.balanced ? 'On - limits below apply to everyone' : 'Off - standard rules, no limits')), h('span', { class: 'sw' }));
   const head = h('div', { class: 'section-title' }, 'Rules', !isHost ? h('small', {}, 'host chooses') : null);
   if (!rules.balanced) return h('div', {}, head, toggle);
-  const caps = h('div', { class: 'chips' }, M.TROOP_CAPS.map(n => h('button', { class: 'chip' + (rules.maxUnits === n ? ' sel' : ''), disabled: !isHost, onclick: () => set({ p_max_units: n }) }, n + '')));
+  const isPreset = M.TROOP_CAPS.includes(rules.maxUnits), isUnl = rules.maxUnits >= M.UNLIMITED;
+  const custom = h('input', { class: 'input capinput', type: 'number', min: '1', max: String(M.UNLIMITED - 1), placeholder: 'custom', value: !isPreset && !isUnl ? String(rules.maxUnits) : '', disabled: !isHost });
+  const applyCustom = () => { const n = Math.floor(Number(custom.value)); if (!(n >= 1 && n < M.UNLIMITED)) { ui.toast('Type a troop limit from 1 to ' + (M.UNLIMITED - 1) + ', or press Unlimited.', 'warn'); return; } set({ p_max_units: n }); };
+  custom.addEventListener('keydown', e => { if (e.key === 'Enter') applyCustom(); });
+  const caps = h('div', {}, h('div', { class: 'chips' }, M.TROOP_CAPS.map(n => h('button', { class: 'chip' + (rules.maxUnits === n ? ' sel' : ''), disabled: !isHost, onclick: () => set({ p_max_units: n }) }, n + '')),
+      h('button', { class: 'chip' + (isUnl ? ' sel' : ''), disabled: !isHost, title: 'No limit (technical maximum ' + M.UNLIMITED + ' per player)', onclick: () => set({ p_max_units: M.UNLIMITED }) }, '∞ Unlimited')),
+    h('div', { class: 'row capcustom' }, custom, h('button', { class: 'btn small' + (!isPreset && !isUnl ? ' primary' : ''), disabled: !isHost, onclick: applyCustom }, 'Set custom limit')));
   const cats = h('div', { class: 'chips' }, M.CATEGORIES.map(([id, label]) => { const on = rules.categories.includes(id);
     return h('button', { class: 'chip' + (on ? ' sel' : ''), disabled: !isHost, title: on ? 'allowed' : 'not allowed', onclick: () => { const next = on ? rules.categories.filter(c => c !== id) : rules.categories.concat(id); if (next.length) set({ p_categories: next }); } }, (on ? '✓ ' : '✗ ') + label); }));
   const modes = h('div', { class: 'chips' }, M.BAN_MODES.map(([id, label]) => h('button', { class: 'chip' + (rules.banMode === id ? ' sel' : ''), disabled: !isHost, onclick: () => set({ p_ban_mode: id, p_banned: id === 'host' ? (rules.hostBanned || []) : [] }) }, label)));

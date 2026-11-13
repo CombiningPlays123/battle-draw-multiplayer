@@ -65,7 +65,7 @@ claim about the result (majority + hash), any army outside its zone/limits, any 
 
 ## Balanced competition (optional rules, all chosen by the host)
 Off by default ("standard rules"). When the host switches it on in the lobby:
-* **Troop limit** per player: 10 / 20 / 30 / 50 / 75 / 100 / 150.
+* **Troop limit** per player: presets (10 … 150), **any custom number (1-999)**, or **Unlimited** (technical maximum 1000 per player).
 * **Allowed categories** (the original toolbar's Army / Animals / Mythical / Terrain; at least one).
 * **Preparation time** (the existing 1 / 3 / 5 / 10 min / unlimited).
 * **Banned troops (optional):** *No bans*, *Host picks* (the host taps troops to ban them) or *Players vote* (every player may vote to ban up to 2

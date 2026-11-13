@@ -110,14 +110,14 @@ create table if not exists public.room_pulse (
 
 -- balanced-competition rules (chosen by the host): troop cap, allowed categories
 alter table public.rooms   add column if not exists balanced   boolean not null default false;
-alter table public.rooms   add column if not exists max_units  int     not null default 300;
+alter table public.rooms   add column if not exists max_units  int     not null default 1000;
 alter table public.rooms   add column if not exists categories text[]  not null default array['army','creatures','mythical','terrain'];
 alter table public.rooms   add column if not exists ban_mode   text    not null default 'none';
 alter table public.rooms   add column if not exists banned     int[]   not null default '{}';
 alter table public.players add column if not exists ban_votes  int[]   not null default '{}';
 alter table public.matches add column if not exists banned     int[]   not null default '{}';
 alter table public.matches add column if not exists balanced   boolean not null default false;
-alter table public.matches add column if not exists max_units  int     not null default 300;
+alter table public.matches add column if not exists max_units  int     not null default 1000;
 alter table public.matches add column if not exists categories text[]  not null default array['army','creatures','mythical','terrain'];
 
 alter table public.rooms         enable row level security;
@@ -418,7 +418,7 @@ drop function if exists public.update_settings(text, text, int);
 drop function if exists public.update_settings(text, text, int, boolean, int, text[]);
 -- p_prep: 60,180,300,600 seconds or 0 = unlimited.  Balanced competition: p_balanced + troop cap + allowed categories
 -- + optional troop bans (p_ban_mode 'none' | 'host' (host picks p_banned) | 'vote' (players vote in the lobby)).
-create or replace function public.update_settings(p_code text, p_mode text, p_prep int, p_balanced boolean default false, p_max_units int default 300,
+create or replace function public.update_settings(p_code text, p_mode text, p_prep int, p_balanced boolean default false, p_max_units int default 1000,
                                                   p_categories text[] default null, p_ban_mode text default 'none', p_banned int[] default null) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare r public.rooms%rowtype; v uuid := public._uid(); m public.matches%rowtype; cats text[]; bn int[] := '{}'; ok boolean := false; t int; bal boolean := coalesce(p_balanced, false);
@@ -428,7 +428,7 @@ begin
   if r.current_match_id is not null then select * into m from public.matches where id = r.current_match_id; if m.phase <> 'finished' then raise exception 'game_in_progress'; end if; end if;
   if p_mode not in ('ffa','teams') then raise exception 'invalid_mode'; end if;
   if p_prep not in (0,60,180,300,600) then raise exception 'invalid_timer'; end if;
-  if p_max_units not in (10,20,30,50,75,100,150,300) then raise exception 'invalid_rules'; end if;
+  if p_max_units is null or p_max_units < 1 or p_max_units > 1000 then raise exception 'invalid_rules'; end if;   -- 1000 = unlimited (technical maximum)
   if coalesce(p_ban_mode, 'none') not in ('none','host','vote') then raise exception 'invalid_rules'; end if;
   cats := coalesce(p_categories, array['army','creatures','mythical','terrain']);
   if coalesce(array_length(cats, 1), 0) = 0 or not (cats <@ array['army','creatures','mythical','terrain']) then raise exception 'invalid_rules'; end if;
@@ -443,7 +443,7 @@ begin
     if not ok then raise exception 'invalid_rules'; end if;
   end if;
   update public.rooms set mode = p_mode, prep_seconds = nullif(p_prep, 0), balanced = bal,
-         max_units = case when bal then p_max_units else 300 end,
+         max_units = case when bal then p_max_units else 1000 end,
          categories = case when bal then cats else array['army','creatures','mythical','terrain'] end,
          ban_mode = case when bal then coalesce(p_ban_mode, 'none') else 'none' end,
          banned = case when bal and coalesce(p_ban_mode, 'none') = 'host' then (select coalesce(array_agg(distinct x order by x), '{}') from unnest(bn) x) else '{}' end
@@ -582,15 +582,15 @@ begin
   if m.prep_ends_at is not null and now() > m.prep_ends_at + interval '3 seconds' then raise exception 'prep_over'; end if;
   select * into mp from public.match_players where match_id = m.id and user_id = v;
   if not found then raise exception 'not_in_match'; end if;
-  if jsonb_typeof(p_army) <> 'object' or length(p_army::text) > 150000 then raise exception 'invalid_army'; end if;
+  if jsonb_typeof(p_army) <> 'object' or length(p_army::text) > 400000 then raise exception 'invalid_army'; end if;
   if jsonb_typeof(coalesce(p_army->'units', '[]'::jsonb)) <> 'array' or jsonb_typeof(coalesce(p_army->'groups', '[]'::jsonb)) <> 'array' then raise exception 'invalid_army'; end if;
   cnt := jsonb_array_length(coalesce(p_army->'units', '[]'::jsonb));
-  if cnt > 300 then raise exception 'too_many_units'; end if;
+  if cnt > 1000 then raise exception 'too_many_units'; end if;
   if cnt > m.max_units then raise exception 'over_unit_limit'; end if;
   if m.balanced and not ('terrain' = any(m.categories)) and (jsonb_array_length(coalesce(p_army->'walls', '[]'::jsonb)) > 0 or jsonb_array_length(coalesce(p_army->'mines', '[]'::jsonb)) > 0) then raise exception 'category_not_allowed'; end if;
   if m.balanced and (jsonb_array_length(coalesce(p_army->'walls', '[]'::jsonb)) > 600 or jsonb_array_length(coalesce(p_army->'mines', '[]'::jsonb)) > 30) then raise exception 'over_unit_limit'; end if;
   ng := jsonb_array_length(coalesce(p_army->'groups', '[]'::jsonb));
-  if ng > 300 then raise exception 'too_many_units'; end if;
+  if ng > 1000 then raise exception 'too_many_units'; end if;
   for u in select * from jsonb_array_elements(coalesce(p_army->'units', '[]'::jsonb)) loop
     if jsonb_typeof(u) <> 'array' or jsonb_array_length(u) <> 5 then raise exception 'invalid_army'; end if;
     if jsonb_typeof(u->0) <> 'number' or jsonb_typeof(u->1) <> 'number' or jsonb_typeof(u->2) <> 'number'
