@@ -53,10 +53,13 @@ M.views.results = (ui, s) => {
     ? h('div', { class: 'row actions' }, (() => { const b = h('button', { class: 'btn primary', onclick: () => ui.run(b, () => ui.app.rm.act('start_match')) }, '↻ Rematch'); return b; })(),
         (() => { const b = h('button', { class: 'btn', onclick: () => ui.run(b, () => ui.app.rm.act('back_to_lobby')) }, 'Return to lobby'); return b; })())
     : h('button', { class: 'btn big ' + (me.ready ? '' : 'primary'), onclick: e => ui.run(e.currentTarget, () => ui.app.rm.act('set_ready', { p_ready: !me.ready })) }, me.ready ? '✓ Ready for a rematch' : 'Ready for a rematch');
+  const change = h('details', { class: 'tally', open: true }, h('summary', {}, 'Rematch settings' + (isHost ? ' (you can change anything)' : ' (host decides)')),
+    M.views.teamAssign(ui, s), M.views.settings(ui, s),
+    h('p', { class: 'hint' }, 'Changing a setting asks the other players to press "Ready for a rematch" again.'));
   const rematchNote = isHost ? h('p', { class: 'hint' }, 'A rematch starts once every other player has pressed "Ready for a rematch".') : null;
 
   return h('div', {}, banner, stat,
     (s.armies || []).length ? h('div', {}, h('div', { class: 'section-title' }, 'Battlefield (starting armies)'), M.preview(s)) : null,
     contrib ? h('div', {}, h('div', { class: 'section-title' }, 'Contributions (units surviving)'), contrib) : null,
-    disputed, hist, actions, rematchNote, ui.leaveBtn());
+    disputed, hist, change, actions, rematchNote, ui.leaveBtn());
 };

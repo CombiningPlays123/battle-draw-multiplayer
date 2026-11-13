@@ -29,6 +29,7 @@ Nothing has been published or deployed on your behalf; no secret/service-role ke
 * **One real simulation:** the original engine is deterministic (seeded, fixed timestep). After the lock every copy of the game builds the
   *same* battle from all armies + a server seed and starts it at the same server-timed moment; the host can pause/resume for everybody.
 * **Balanced competition (optional):** the host can set a troop limit, allowed categories and troop bans (picked by the host or voted by the players).
+* **Rematch with new settings:** after a battle the host can change the mode, teams, preparation time and balanced rules before starting the next match.
 * **Honest results:** each copy reports (winner, end tick, state hash); the server only accepts a result a majority agree on, otherwise the
   match is "disputed" and the host confirms. Nothing is randomised or invented.
 Details and the findings about the original game: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

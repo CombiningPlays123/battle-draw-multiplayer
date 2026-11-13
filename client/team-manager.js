@@ -61,6 +61,36 @@ M.views.rulesBlock = (ui, s) => {
     h('p', { class: 'hint' }, M.rulesText(rules)));
 };
 
+/** mode + preparation time + balanced rules (+ the red/blue team summary): shared by the lobby and the rematch screen */
+M.views.settings = (ui, s) => {
+  const { h } = M, isHost = s.room.hostId === s.me, teams = s.room.mode === 'teams';
+  const setting = (mode, prep) => ui.run(null, () => ui.app.rm.act('update_settings', M.settingsArgs(s, { p_mode: mode, p_prep: prep })));
+  const prepNow = s.room.prepSeconds || 0;
+  const modeCard = (id, icon, title, desc) => h('button', { class: 'mode ' + (s.room.mode === id ? ' sel' : ''), disabled: !isHost, onclick: () => setting(id, prepNow) },
+    h('span', { class: 'micon' }, icon), h('b', {}, title), h('small', {}, desc));
+  const teamBlock = teams ? h('div', { class: 'teams' }, M.TEAMS.map((t, i) => h('div', { class: 'team', style: { '--tc': t.color } },
+    h('b', {}, t.name), h('small', {}, s.players.filter(p => p.team === i).map(p => p.name).join(', ') || 'empty')))) : null;
+  return h('div', {},
+    teamBlock,
+    h('div', { class: 'section-title' }, 'Mode', !isHost ? h('small', {}, 'host chooses') : null),
+    h('div', { class: 'modes' },
+      modeCard('teams', '🛡', 'Team battle', 'Red vs Blue. Your armies fight together. 1v1, 2v2, 3v1…'),
+      modeCard('ffa', '⚔', 'Free-for-all', 'Every player for themselves in one battle.')),
+    h('div', { class: 'section-title' }, 'Preparation time', !isHost ? h('small', {}, 'host chooses') : null),
+    h('div', { class: 'chips' }, M.PREP_OPTIONS.map(([sec, label]) => h('button', { class: 'chip' + (prepNow === sec ? ' sel' : ''), disabled: !isHost, onclick: () => setting(s.room.mode, sec) }, label))),
+    M.views.rulesBlock(ui, s));
+};
+
+/** host: move players between Red and Blue (team battle) */
+M.views.teamAssign = (ui, s) => {
+  const { h } = M;
+  if (s.room.mode !== 'teams' || s.room.hostId !== s.me) return null;
+  return h('div', {}, h('div', { class: 'section-title' }, 'Teams'), h('div', { class: 'players' }, s.players.map(p => h('div', { class: 'player' + (p.online ? '' : ' off') },
+    h('span', { class: 'swatch', style: { background: M.TEAMS[p.team].color } }), h('span', { class: 'pname' }, p.name),
+    h('span', { class: 'teambtns' }, M.TEAMS.map((t, i) => h('button', { class: 'tb' + (p.team === i ? ' sel' : ''), style: { '--tc': t.color },
+      onclick: e => ui.run(e.currentTarget, () => ui.app.rm.act('set_team', { p_target: p.id, p_team: i })) }, i === 0 ? 'Red' : 'Blue')))))));
+};
+
 M.views.lobby = (ui, s) => {
   const { h } = M, isHost = s.room.hostId === s.me, teams = s.room.mode === 'teams';
   const online = s.players.filter(p => p.online);
@@ -83,25 +113,11 @@ M.views.lobby = (ui, s) => {
     h('span', { class: 'tag ' + (p.ready || p.host ? 'ok' : '') }, !p.online ? 'reconnecting…' : p.host ? 'host' : p.ready ? '✓ ready' : 'not ready'),
     isHost && p.id !== s.me ? h('button', { class: 'icon kick', title: 'Kick ' + p.name, onclick: e => ui.run(e.currentTarget, () => ui.app.rm.act('kick_player', { p_target: p.id })) }, '⛔') : null);
 
-  const teamBlock = teams ? h('div', { class: 'teams' }, M.TEAMS.map((t, i) => h('div', { class: 'team', style: { '--tc': t.color } },
-    h('b', {}, t.name), h('small', {}, s.players.filter(p => p.team === i).map(p => p.name).join(', ') || 'empty')))) : null;
-  const setting = (mode, prep) => ui.run(null, () => ui.app.rm.act('update_settings', M.settingsArgs(s, { p_mode: mode, p_prep: prep })));
-  const prepNow = s.room.prepSeconds || 0;
-  const modeCard = (id, icon, title, desc) => h('button', { class: 'mode ' + (s.room.mode === id ? ' sel' : ''), disabled: !isHost, onclick: () => setting(id, prepNow) },
-    h('span', { class: 'micon' }, icon), h('b', {}, title), h('small', {}, desc));
-
   return h('div', {},
     h('div', { class: 'invite' }, h('small', {}, 'Share this code'), h('button', { class: 'bigcode', onclick: () => ui.copyCode() }, s.room.code), h('small', {}, 'click to copy · ' + s.players.length + '/4 players')),
     h('div', { class: 'section-title' }, 'Players'),
     h('div', { class: 'players' }, s.players.map(row)),
-    teamBlock,
-    h('div', { class: 'section-title' }, 'Mode', !isHost ? h('small', {}, 'host chooses') : null),
-    h('div', { class: 'modes' },
-      modeCard('teams', '🛡', 'Team battle', 'Red vs Blue. Your armies fight together. 1v1, 2v2, 3v1…'),
-      modeCard('ffa', '⚔', 'Free-for-all', 'Every player for themselves in one battle.')),
-    h('div', { class: 'section-title' }, 'Preparation time', !isHost ? h('small', {}, 'host chooses') : null),
-    h('div', { class: 'chips' }, M.PREP_OPTIONS.map(([sec, label]) => h('button', { class: 'chip' + (prepNow === sec ? ' sel' : ''), disabled: !isHost, onclick: () => setting(s.room.mode, sec) }, label))),
-    M.views.rulesBlock(ui, s),
+    M.views.settings(ui, s),
     isHost ? start : h('button', { class: 'btn big ' + (me && me.ready ? '' : 'primary'), onclick: e => ui.run(e.currentTarget, () => ui.app.rm.act('set_ready', { p_ready: !(me && me.ready) })) }, me && me.ready ? '✓ Ready - click to cancel' : 'I\'m ready'),
     ui.leaveBtn());
 };

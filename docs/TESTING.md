@@ -73,3 +73,9 @@ Four real tabs again (build with normalised coordinates, canonical 1280×720 bat
   Dragon (banned), Boar (category off), Barrel (terrain off) and a wall were all refused; the Animals and Terrain toolbar tabs were hidden;
   the counter read "10 / 10"; the server stored exactly 10 units.
 * Not tested: the host-picks ban mode in the browser (covered by the backend tests) and balanced rules through a full battle (the battle path is unchanged).
+
+## F. Rematch with different settings
+Two real tabs: after a finished 1v1 team match, the host changed the mode (Team battle → Free-for-all), the preparation time (1 → 3 min) and switched on
+Balanced competition with a 30-troop cap, all from the results screen; the other player saw the new settings (read-only), pressed "Ready for a rematch",
+and the host's Rematch started match #2 with exactly those settings (free-for-all sectors, "0 / 30 units"). The backend already allowed settings and team
+changes between matches (covered by the existing tests).
